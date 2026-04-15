@@ -1,6 +1,8 @@
+const crypto = require("crypto");
 const User = require("../models/user.model");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const TokenBlacklist = require("../models/blacklist.model");
 
 /**
  * @name registerUserController
@@ -28,11 +30,11 @@ async function registerUserController(req, res) {
         // Create user
         const newUser = await User.create({ username, email, password: hashedPassword });
 
-        // Sign JWT
+        // Sign JWT with a unique jti for blacklisting support
         const token = jwt.sign(
             { id: newUser.id, username: newUser.username, email: newUser.email },
             process.env.JWT_SECRET,
-            { expiresIn: "7d" }
+            { expiresIn: "7d", jwtid: crypto.randomUUID() }
         );
 
         // Set cookie
@@ -79,11 +81,11 @@ async function loginUserController(req, res) {
             return res.status(401).json({ message: "Invalid credentials" });
         }
 
-        // Sign JWT
+        // Sign JWT with a unique jti for blacklisting support
         const token = jwt.sign(
             { id: user.id, username: user.username, email: user.email },
             process.env.JWT_SECRET,
-            { expiresIn: "7d" }
+            { expiresIn: "1d", jwtid: crypto.randomUUID() }
         );
 
         // Set cookie
@@ -91,7 +93,7 @@ async function loginUserController(req, res) {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
-            maxAge: 7 * 24 * 60 * 60 * 1000,
+            maxAge: 1 * 24 * 60 * 60 * 1000,
         });
 
         return res.status(200).json({
@@ -106,13 +108,25 @@ async function loginUserController(req, res) {
 
 /**
  * @name logoutUserController
- * @desc Logout the current user
+ * @desc Logout the current user and blacklist their token
  * @route POST /api/auth/logout
- * @access Public
+ * @access Private (requires authMiddleware)
  */
 async function logoutUserController(req, res) {
-    res.clearCookie("token");
-    return res.status(200).json({ message: "Logged out successfully" });
+    try {
+        // req.user is set by authMiddleware (the decoded JWT payload)
+        const { jti, exp } = req.user;
+
+        if (jti && exp) {
+            await TokenBlacklist.add(jti, exp);
+        }
+
+        res.clearCookie("token");
+        return res.status(200).json({ message: "Logged out successfully" });
+    } catch (error) {
+        console.error("logoutUserController error:", error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
 }
 
 module.exports = { registerUserController, loginUserController, logoutUserController };
