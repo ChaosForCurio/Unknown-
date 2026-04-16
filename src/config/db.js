@@ -1,10 +1,12 @@
 const { neon } = require("@neondatabase/serverless");
+const env = require("./env");
+const logger = require("./logger");
 
 let sql;
 
 async function connectDB() {
     try {
-        sql = neon(process.env.NEON_DB);
+        sql = neon(env.NEON_DB);
 
         // Ensure the users table exists
         await sql`
@@ -17,9 +19,9 @@ async function connectDB() {
             )
         `;
 
-        console.log("Connected to Neon database & users table ready.");
+        logger.info("Connected to Neon database & users table ready.");
     } catch (error) {
-        console.error("Error connecting to Neon database:", error);
+        logger.error({ err: error }, "Error connecting to Neon database");
         process.exit(1);
     }
 }
